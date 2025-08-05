@@ -75,6 +75,19 @@ These variables have sensible defaults:
 - **Privacy Note**: When enabled, full prompt text is sent to the telemetry server
 - **Note**: The quickstart script enables this by default for better observability
 
+### `OTEL_RESOURCE_ATTRIBUTES`
+- **Purpose**: Set custom resource attributes like team member name
+- **Required**: NO
+- **Default**: None
+- **Format**: Comma-separated key=value pairs
+- **Example**: `member=herry,department=engineering,team.id=platform`
+- **Common Attributes**:
+  - `member`: Team member name or identifier
+  - `department`: Department name
+  - `team.id`: Team identifier
+  - `cost_center`: Cost center code
+- **Note**: These attributes appear in Langfuse sessions and conversations for filtering
+
 ## Quick Start Examples
 
 ### Minimal Configuration (Recommended)
@@ -103,6 +116,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
 export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs
 export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics
 export OTEL_LOG_USER_PROMPTS=1
+export OTEL_RESOURCE_ATTRIBUTES=member=your-name,department=engineering
 ```
 
 ### Remote Server Configuration
@@ -146,6 +160,7 @@ export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 export OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/json
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
 export OTEL_LOG_USER_PROMPTS=1
+export OTEL_RESOURCE_ATTRIBUTES=member=your-name
 ```
 
 ### Zsh (~/.zshrc)

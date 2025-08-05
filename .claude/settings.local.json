@@ -37,7 +37,9 @@
       "Bash(git stash:*)",
       "Bash(npx license-checker:*)",
       "Bash(npm run test:unit:*)",
-      "Bash(npm run test:integration:*)"
+      "Bash(npm run test:integration:*)",
+      "mcp__context-7__resolve-library-id",
+      "mcp__context-7__get-library-docs"
     ],
     "deny": []
   }

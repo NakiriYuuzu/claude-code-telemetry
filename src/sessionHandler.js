@@ -66,8 +66,11 @@ class SessionHandler {
       service: serviceInfo,
     }
 
+    // Store member separately for easy access
+    this.member = serviceInfo.member
+
     logger.info(
-      { sessionId, service: serviceInfo.name, version: serviceInfo.version },
+      { sessionId, service: serviceInfo.name, version: serviceInfo.version, member: serviceInfo.member },
       'Session created',
     )
   }
@@ -80,6 +83,10 @@ class SessionHandler {
       instance: attrs['service.instance.id'] || attrs['host.name'],
       telemetrySDK: attrs['telemetry.sdk.name'],
       terminalType: attrs['terminal.type'],
+      member: attrs['member'],
+      hostArch: attrs['host.arch'],
+      osType: attrs['os.type'],
+      osVersion: attrs['os.version'],
     }
   }
 
@@ -134,6 +141,7 @@ class SessionHandler {
         organizationId: attrs['organization.id'] || this.organizationId,
         userAccountUuid: attrs['user.account_uuid'] || this.userAccountUuid,
         terminalType: attrs['terminal.type'] || this.terminalType,
+        member: this.member,
         claude: {
           sessionId: attrs['session.id'] || this.sessionId,
           version: attrs['app.version'] || this.metadata.service.version,
@@ -181,6 +189,7 @@ class SessionHandler {
           organizationId: attrs['organization.id'] || this.organizationId,
           userAccountUuid: attrs['user.account_uuid'] || this.userAccountUuid,
           terminalType: attrs['terminal.type'] || this.terminalType,
+          member: this.member,
           claude: {
             sessionId: attrs['session.id'] || this.sessionId,
             version: this.metadata.service.version,
@@ -668,6 +677,7 @@ class SessionHandler {
           userAccountUuid: this.userAccountUuid,
           userEmail: this.userEmail,
           terminalType: this.terminalType,
+          member: this.member,
         },
       })
 

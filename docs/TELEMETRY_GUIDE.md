@@ -55,7 +55,35 @@ export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics
 
 # Include prompt text (privacy consideration)
 export OTEL_LOG_USER_PROMPTS=1
+
+# Resource attributes for team tracking
+export OTEL_RESOURCE_ATTRIBUTES="member=alex,department=engineering"
 ```
+
+### Resource Attributes
+
+Resource attributes provide metadata about the telemetry source and are included with all events and metrics. Claude Code sends the following resource attributes:
+
+```bash
+# Set custom resource attributes
+export OTEL_RESOURCE_ATTRIBUTES="member=alex,department=engineering,team.id=platform"
+```
+
+Common attributes supported:
+- `member`: Team member name or identifier (appears in Langfuse sessions)
+- `department`: Department name
+- `team.id`: Team identifier
+- `cost_center`: Cost center code
+- `service.name`: Service name (default: claude-code)
+- `service.version`: Claude Code version
+- `host.arch`: Host architecture (e.g., amd64)
+- `os.type`: Operating system type (e.g., windows, darwin, linux)
+- `os.version`: Operating system version
+
+These attributes are particularly useful for:
+- **Team Cost Tracking**: Filter costs by member or department
+- **Usage Analysis**: See who uses which tools most frequently
+- **Compliance**: Track usage by cost center for budgeting
 
 ## Events (Logs)
 

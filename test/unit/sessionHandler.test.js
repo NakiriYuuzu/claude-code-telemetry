@@ -63,6 +63,7 @@ describe('SessionHandler', () => {
     session = new SessionHandler('test-session-id', {
       'service.name': 'test-service',
       'service.version': '1.0.0',
+      'member': 'test-member',
     }, mockLangfuseInstance)
   })
 
@@ -76,6 +77,24 @@ describe('SessionHandler', () => {
       expect(session.linesRemoved).toBe(0)
       expect(session.metadata.service.name).toBe('test-service')
       expect(session.metadata.service.version).toBe('1.0.0')
+      expect(session.member).toBe('test-member')
+    })
+
+    test('extracts resource attributes including member', () => {
+      const sessionWithAttributes = new SessionHandler('test-session-id', {
+        'service.name': 'claude-code',
+        'service.version': '1.0.68',
+        'member': 'herry',
+        'host.arch': 'amd64',
+        'os.type': 'windows',
+        'os.version': '10.0.26100',
+      }, mockLangfuseInstance)
+
+      expect(sessionWithAttributes.member).toBe('herry')
+      expect(sessionWithAttributes.metadata.service.member).toBe('herry')
+      expect(sessionWithAttributes.metadata.service.hostArch).toBe('amd64')
+      expect(sessionWithAttributes.metadata.service.osType).toBe('windows')
+      expect(sessionWithAttributes.metadata.service.osVersion).toBe('10.0.26100')
     })
 
     test('throws error if sessionId is not provided', () => {
@@ -344,9 +363,29 @@ describe('SessionHandler', () => {
         },
         metadata: expect.objectContaining({
           conversationIndex: 1,
+          member: 'test-member',
         }),
         version: '1.0.0',
       })
+    })
+
+    test('includes member attribute in trace metadata', () => {
+      const attrs = {
+        prompt: 'Test with member',
+        prompt_length: 16,
+        'user.email': 'test@example.com',
+      }
+      const timestamp = '2024-07-31T10:00:00Z'
+
+      session.handleUserPrompt(attrs, timestamp)
+
+      expect(mockLangfuseInstance.trace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            member: 'test-member',
+          }),
+        })
+      )
     })
   })
 
@@ -660,7 +699,9 @@ describe('SessionHandler', () => {
             netChange: 80,
           },
         }),
-        metadata: expect.any(Object),
+        metadata: expect.objectContaining({
+          member: 'test-member',
+        }),
       })
 
       expect(mockLangfuseInstance.flushAsync).toHaveBeenCalled()

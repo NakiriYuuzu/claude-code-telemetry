@@ -25,6 +25,7 @@ Claude Code Telemetry is a lightweight bridge that captures telemetry data from 
 - 💰 **Cost Tracking** - See costs per session, user, and model
 - 📊 **Usage Metrics** - Token counts, cache hits, and tool usage
 - ⏱️ **Session Grouping** - Automatically groups work into 1-hour sessions
+- 👥 **Team Member Tracking** - Filter sessions and costs by team member name
 - 🔍 **Full Transparency** - Every API call logged with complete details
 - 🔐 **Safe local data** - The packaged self-hosted Langfuse keeps your data local
 
@@ -49,6 +50,9 @@ git clone https://github.com/lainra/claude-code-telemetry && cd claude-code-tele
 # Enable telemetry
 source claude-telemetry.env
 
+# Optional: Set your member name for team tracking
+export OTEL_RESOURCE_ATTRIBUTES="member=your-name"
+
 # Test it works
 claude "What is 2+2?"
 ```
@@ -67,6 +71,7 @@ claude "Set up the telemetry dashboard"
 Every conversation becomes a trackable session:
 ```
 Session: 4:32 PM - 5:15 PM (43 minutes)
+├── Member: alex
 ├── Total Cost: $18.43
 ├── API Calls: 6 (2 Haiku, 4 Opus)
 ├── Total Tokens: 45,231 (31,450 cached)
@@ -90,17 +95,17 @@ Full details for every Claude interaction:
 ```
 
 ### Cost Breakdown
-Track spending by model and user:
+Track spending by model and team member:
 ```
 Today's Usage:
 ├── Total: $67.43
 ├── By Model:
 │   ├── Opus: $61.20 (91%)
 │   └── Haiku: $6.23 (9%)
-└── By User:
-    ├── alex@team.com: $28.90
-    ├── sarah@team.com: $22.15
-    └── mike@team.com: $16.38
+└── By Member:
+    ├── alex: $28.90
+    ├── sarah: $22.15
+    └── mike: $16.38
 ```
 
 ## 🔧 How It Works
@@ -180,6 +185,7 @@ docker compose up telemetry-bridge
 | `OTLP_RECEIVER_PORT` | 4318 | OpenTelemetry standard port |
 | `LANGFUSE_HOST` | http://localhost:3000 | Langfuse dashboard URL |
 | `LOG_LEVEL` | info | Logging verbosity |
+| `OTEL_RESOURCE_ATTRIBUTES` | - | Set member name and other attributes (e.g., `member=alex,team=engineering`) |
 
 See `.env.example` for all options.
 
