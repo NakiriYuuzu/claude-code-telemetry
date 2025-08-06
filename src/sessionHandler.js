@@ -68,6 +68,8 @@ class SessionHandler {
 
     // Store member separately for easy access
     this.member = serviceInfo.member
+    // Initialize userEmail (will be updated from metrics/events)
+    this.userEmail = null
 
     logger.info(
       { sessionId, service: serviceInfo.name, version: serviceInfo.version, member: serviceInfo.member },
@@ -77,6 +79,14 @@ class SessionHandler {
 
   extractResourceInfo(resourceAttributes) {
     const attrs = resourceAttributes || {}
+    
+    // Debug: Log received resource attributes
+    if (attrs['member']) {
+      logger.info({ member: attrs['member'] }, 'Member attribute found in resource')
+    } else {
+      logger.debug({ attrs: Object.keys(attrs) }, 'No member attribute, available keys')
+    }
+    
     return {
       name: attrs['service.name'] || 'claude-code',
       version: attrs['service.version'] || attrs['claude.version'] || attrs['app.version'] || 'unknown',
@@ -90,10 +100,57 @@ class SessionHandler {
     }
   }
 
+  // Helper method to format userId as "member@email"
+  formatUserId(attrs) {
+    // Priority: event attrs > stored userEmail > metadata userId
+    const email = attrs['user.email'] || this.userEmail || this.metadata.userId || 'unknown'
+    const member = this.member || 'unknown'
+    
+    // Debug logging
+    logger.debug({ 
+      member, 
+      email, 
+      hasUserEmail: !!this.userEmail,
+      attrsEmail: attrs['user.email'] 
+    }, 'Formatting userId')
+    
+    // If we have a real email and member, combine them
+    if (member !== 'unknown' && email !== 'unknown') {
+      // Use . instead of @ to avoid confusion with real email
+      const formatted = `${member}.${email}`
+      logger.info({ userId: formatted }, 'Formatted userId with member')
+      return formatted
+    }
+    // Fallback to just email if no member info
+    logger.debug({ userId: email }, 'Using email as userId (no member)')
+    return email
+  }
+
+  // Helper method to generate tags from Resource Attributes
+  generateResourceTags() {
+    const serviceInfo = this.metadata.service
+    const tags = []
+    
+    // Add member as first tag for visibility
+    if (this.member) tags.push(this.member)
+    
+    // Add system info as simple strings
+    if (serviceInfo.instance) tags.push(serviceInfo.instance)
+    if (serviceInfo.osType) tags.push(serviceInfo.osType)
+    if (serviceInfo.version) tags.push(serviceInfo.version)
+    
+    return tags
+  }
+
   processLogRecord(logRecord, resource) {
     const eventName = logRecord.body?.stringValue
     const timestamp = logRecord.timeUnixNano ? new Date(Number(logRecord.timeUnixNano) / 1000000).toISOString() : new Date().toISOString()
     const attrs = extractAttributesArray(logRecord.attributes)
+    
+    // Extract and store user email if present
+    if (attrs['user.email'] && !this.userEmail) {
+      this.userEmail = attrs['user.email']
+    }
 
     logger.debug({ eventName, attrs, sessionId: this.sessionId }, 'Processing event')
 
@@ -129,7 +186,8 @@ class SessionHandler {
     this.currentTrace = this.langfuse.trace({
       name: `conversation-${this.conversationCount}`,
       sessionId: this.sessionId,
-      userId: attrs['user.email'] || attrs['user.id'] || this.metadata.userId,
+      userId: this.formatUserId(attrs),
+      tags: this.generateResourceTags(),
       input: {
         prompt: attrs.prompt || '[Prompt hidden]',
         length: attrs.prompt_length || 0,
@@ -142,6 +200,14 @@ class SessionHandler {
         userAccountUuid: attrs['user.account_uuid'] || this.userAccountUuid,
         terminalType: attrs['terminal.type'] || this.terminalType,
         member: this.member,
+        resourceAttributes: {
+          host: this.metadata.service.instance,
+          'host.arch': this.metadata.service.hostArch,
+          'os.type': this.metadata.service.osType,
+          'os.version': this.metadata.service.osVersion,
+          'service.name': this.metadata.service.name,
+          'service.version': this.metadata.service.version,
+        },
         claude: {
           sessionId: attrs['session.id'] || this.sessionId,
           version: attrs['app.version'] || this.metadata.service.version,
@@ -177,7 +243,8 @@ class SessionHandler {
       this.currentTrace = this.langfuse.trace({
         name: `conversation-${this.conversationCount}`,
         sessionId: this.sessionId,
-        userId: attrs['user.email'] || this.userEmail || this.metadata.userId,
+        userId: this.formatUserId(attrs),
+        tags: this.generateResourceTags(),
         input: {
           prompt: '[No user prompt captured - OTEL_LOG_USER_PROMPTS may be disabled]',
           model,
@@ -375,6 +442,11 @@ class SessionHandler {
 
   processMetric(metric, dataPoint, attrs) {
     this.lastActivity = Date.now()
+    
+    // Extract and store user email if present
+    if (attrs['user.email'] && !this.userEmail) {
+      this.userEmail = attrs['user.email']
+    }
 
     // Handle different metric types
     switch (metric.name) {
@@ -634,7 +706,8 @@ class SessionHandler {
       const sessionSummary = this.langfuse.trace({
         name: 'session-summary',
         sessionId: this.sessionId,
-        userId: this.metadata.userId || 'claude-code-user',
+        userId: this.formatUserId({}),
+        tags: this.generateResourceTags(),
         version: this.metadata.release,
         input: {
           sessionStart: this.createdAt.toISOString(),

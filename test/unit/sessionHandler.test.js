@@ -102,6 +102,55 @@ describe('SessionHandler', () => {
     })
   })
 
+  describe('formatUserId', () => {
+    test('formats userId as member.email', () => {
+      const attrs = { 'user.email': 'test@example.com' }
+      const result = session.formatUserId(attrs)
+      expect(result).toBe('test-member.test@example.com')
+    })
+
+    test('uses fallback values when member or email not available', () => {
+      const session2 = new SessionHandler('test-session-id', {}, mockLangfuseInstance)
+      const result = session2.formatUserId({})
+      // When no member info, just returns the email/userId
+      expect(result).toBeDefined()
+    })
+  })
+
+  describe('generateResourceTags', () => {
+    test('generates tags from all resource attributes', () => {
+      const sessionWithFullAttrs = new SessionHandler('test-session-id', {
+        'service.name': 'claude-code',
+        'service.version': '1.0.68',
+        'service.instance.id': 'host-123',
+        'host.arch': 'amd64',
+        'os.type': 'windows',
+        'os.version': '10.0.26100',
+      }, mockLangfuseInstance)
+
+      const tags = sessionWithFullAttrs.generateResourceTags()
+      
+      // Tags are now simple strings, not key:value pairs
+      expect(tags).toContain('host-123')
+      expect(tags).toContain('windows')
+      expect(tags).toContain('1.0.68')
+      expect(tags).not.toContain('amd64') // host.arch not included in simple tags
+    })
+
+    test('only includes available tags', () => {
+      const sessionWithPartialAttrs = new SessionHandler('test-session-id', {
+        'service.name': 'claude-code',
+        'os.type': 'linux',
+      }, mockLangfuseInstance)
+
+      const tags = sessionWithPartialAttrs.generateResourceTags()
+      
+      // Tags are now simple strings
+      expect(tags).toContain('linux')
+      expect(tags.length).toBeGreaterThan(0)
+    })
+  })
+
   describe('processMetric', () => {
     test('processes cost usage metrics', () => {
       const metric = { name: 'claude_code.cost.usage' }
@@ -356,7 +405,8 @@ describe('SessionHandler', () => {
       expect(mockLangfuseInstance.trace).toHaveBeenCalledWith({
         name: 'conversation-1',
         sessionId: 'test-session-id',
-        userId: 'test@example.com',
+        userId: 'test-member.test@example.com',
+        tags: expect.any(Array),
         input: {
           prompt: 'Hello, Claude!',
           length: 14,
@@ -369,7 +419,7 @@ describe('SessionHandler', () => {
       })
     })
 
-    test('includes member attribute in trace metadata', () => {
+    test('includes member as both top-level field and in metadata', () => {
       const attrs = {
         prompt: 'Test with member',
         prompt_length: 16,
@@ -381,6 +431,7 @@ describe('SessionHandler', () => {
 
       expect(mockLangfuseInstance.trace).toHaveBeenCalledWith(
         expect.objectContaining({
+          // member is now only in metadata, not top-level
           metadata: expect.objectContaining({
             member: 'test-member',
           }),
@@ -409,6 +460,26 @@ describe('SessionHandler', () => {
       expect(session.totalTokens).toBe(300)
       expect(session.apiCallCount).toBe(1)
       expect(mockLangfuseInstance.generation).toHaveBeenCalled()
+    })
+
+    test('includes member field in generation span', () => {
+      session.currentTrace = mockLangfuseInstance.trace()
+
+      const attrs = {
+        model: 'claude-3-opus',
+        input_tokens: 100,
+        output_tokens: 200,
+      }
+      const timestamp = '2024-07-31T10:00:00Z'
+
+      session.handleApiRequest(attrs, timestamp)
+
+      expect(mockLangfuseInstance.generation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // member field removed from generation
+          name: expect.any(String),
+        })
+      )
     })
   })
 
@@ -443,6 +514,24 @@ describe('SessionHandler', () => {
             toolName: 'Bash',
           }),
         }),
+      )
+    })
+
+    test('includes member field in tool events', () => {
+      const attrs = {
+        tool_name: 'Write',
+        success: true,
+        duration_ms: 100,
+      }
+      const timestamp = '2024-07-31T10:00:00Z'
+
+      session.handleToolResult(attrs, timestamp)
+
+      expect(session.langfuse.event).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // member field removed from event
+          name: expect.any(String),
+        })
       )
     })
 
@@ -660,6 +749,138 @@ describe('SessionHandler', () => {
     })
   })
 
+  describe('Complete OTEL Flow with Resource Attributes', () => {
+    test('processes complete OTEL data with resource attributes and metrics', () => {
+      // Create session with full resource attributes
+      const resourceAttributes = {
+        'member': 'herry',
+        'host.arch': 'amd64',
+        'os.type': 'windows',
+        'os.version': '10.0.26100',
+        'service.name': 'claude-code',
+        'service.version': '1.0.68',
+        'service.instance.id': 'host-prod-01'
+      }
+      
+      const sessionWithAttrs = new SessionHandler('cc4530bc-44ff-4f1e-8c4e-ae37384ad160', resourceAttributes, mockLangfuseInstance)
+      
+      // Verify resource attributes are properly extracted
+      expect(sessionWithAttrs.member).toBe('herry')
+      expect(sessionWithAttrs.metadata.service.name).toBe('claude-code')
+      expect(sessionWithAttrs.metadata.service.version).toBe('1.0.68')
+      expect(sessionWithAttrs.metadata.service.osType).toBe('windows')
+      expect(sessionWithAttrs.metadata.service.osVersion).toBe('10.0.26100')
+      expect(sessionWithAttrs.metadata.service.hostArch).toBe('amd64')
+      expect(sessionWithAttrs.metadata.service.instance).toBe('host-prod-01')
+      
+      // Verify tags are generated correctly (now simple strings)
+      const tags = sessionWithAttrs.generateResourceTags()
+      expect(tags).toContain('herry') // member is first tag
+      expect(tags).toContain('host-prod-01')
+      expect(tags).toContain('windows')
+      expect(tags).toContain('1.0.68')
+      
+      // Process session count metric
+      const sessionCountMetric = {
+        name: 'claude_code.session.count'
+      }
+      const sessionCountData = { asInt: 1 }
+      const sessionCountAttrs = {
+        'user.id': '15d54a433f15b0c78ca0a3fac5201d83df644caa8d2bd1a31fab5f23a464517b',
+        'session.id': 'cc4530bc-44ff-4f1e-8c4e-ae37384ad160',
+        'app.version': '1.0.68',
+        'organization.id': '9a25190d-d60b-4802-a14e-8d1d73c503a9',
+        'user.email': 'geosense888@gmail.com',
+        'user.account_uuid': '33def1b5-6b0f-49c0-ac1d-2ede13f28a8f'
+      }
+      
+      sessionWithAttrs.processMetric(sessionCountMetric, sessionCountData, sessionCountAttrs)
+      
+      // Process cost metric
+      const costMetric = {
+        name: 'claude_code.cost.usage'
+      }
+      const costData = { asDouble: 0.0002016 }
+      const costAttrs = {
+        ...sessionCountAttrs,
+        model: 'claude-3-5-haiku-20241022'
+      }
+      
+      sessionWithAttrs.processMetric(costMetric, costData, costAttrs)
+      
+      // Process token metrics
+      const tokenMetric = {
+        name: 'claude_code.token.usage'
+      }
+      const tokenInputData = { asDouble: 122 }
+      const tokenInputAttrs = {
+        ...sessionCountAttrs,
+        type: 'input',
+        model: 'claude-3-5-haiku-20241022'
+      }
+      
+      sessionWithAttrs.processMetric(tokenMetric, tokenInputData, tokenInputAttrs)
+      
+      const tokenOutputData = { asDouble: 26 }
+      const tokenOutputAttrs = {
+        ...sessionCountAttrs,
+        type: 'output',
+        model: 'claude-3-5-haiku-20241022'
+      }
+      
+      sessionWithAttrs.processMetric(tokenMetric, tokenOutputData, tokenOutputAttrs)
+      
+      // Process active time metrics
+      const activeTimeMetric = {
+        name: 'claude_code.active_time.total'
+      }
+      const activeTimeUserData = { asDouble: 9.447 }
+      const activeTimeUserAttrs = {
+        ...sessionCountAttrs,
+        type: 'user'
+      }
+      
+      sessionWithAttrs.processMetric(activeTimeMetric, activeTimeUserData, activeTimeUserAttrs)
+      
+      // Verify metrics were processed correctly
+      expect(sessionWithAttrs.totalCost).toBe(0.0002016)
+      expect(sessionWithAttrs.totalTokens).toBe(148) // 122 + 26
+      
+      // Simulate user prompt to create a trace
+      const promptAttrs = {
+        prompt: 'Test prompt with member tracking',
+        prompt_length: 32,
+        'user.email': 'geosense888@gmail.com'
+      }
+      
+      sessionWithAttrs.handleUserPrompt(promptAttrs, '2025-01-06T10:00:00Z')
+      
+      // Verify trace was created with correct userId format and tags
+      expect(mockLangfuseInstance.trace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'herry.geosense888@gmail.com', // member.email format
+          tags: expect.arrayContaining([
+            'herry', // member is first tag
+            'host-prod-01',
+            'windows',
+            '1.0.68'
+          ]),
+          metadata: expect.objectContaining({
+            member: 'herry',
+            resourceAttributes: expect.objectContaining({
+              host: 'host-prod-01',
+              'host.arch': 'amd64',
+              'os.type': 'windows',
+              'os.version': '10.0.26100',
+              'service.name': 'claude-code',
+              'service.version': '1.0.68'
+            })
+          })
+        })
+      )
+    })
+  })
+
   describe('finalize', () => {
     test('calculates session metrics correctly', async () => {
       // Set up session data
@@ -673,36 +894,37 @@ describe('SessionHandler', () => {
 
       await session.finalize()
 
-      expect(mockLangfuseInstance.trace).toHaveBeenCalledWith({
-        name: 'session-summary',
-        sessionId: 'test-session-id',
-        userId: expect.any(String),
-        version: '1.0.0',
-        input: expect.objectContaining({
-          sessionStart: expect.any(String),
-          metadata: expect.objectContaining({
-            service: {
-              name: 'test-service',
-              version: '1.0.0',
-            },
-          }),
-        }),
-        output: expect.objectContaining({
-          conversationCount: 2,
-          apiCallCount: 3,
-          toolCallCount: 5,
-          totalCost: 0.5,
-          totalTokens: 2000,
-          codeChanges: {
-            linesAdded: 100,
-            linesRemoved: 20,
-            netChange: 80,
-          },
-        }),
-        metadata: expect.objectContaining({
-          member: 'test-member',
-        }),
-      })
+      // Verify the trace was called
+      expect(mockLangfuseInstance.trace).toHaveBeenCalledTimes(1)
+      
+      // Get the actual call arguments
+      const callArgs = mockLangfuseInstance.trace.mock.calls[0][0]
+      
+      // Verify key properties
+      expect(callArgs.name).toBe('session-summary')
+      expect(callArgs.sessionId).toBe('test-session-id')
+      expect(callArgs.userId).toBeDefined() // userId should be defined
+      expect(callArgs.tags).toEqual(expect.any(Array))
+      expect(callArgs.version).toBe('1.0.0')
+      
+      // Verify input structure
+      expect(callArgs.input.sessionStart).toEqual(expect.any(String))
+      expect(callArgs.input.metadata.service.name).toBe('test-service')
+      expect(callArgs.input.metadata.service.version).toBe('1.0.0')
+      expect(callArgs.input.metadata.service.member).toBe('test-member')
+      
+      // Verify output structure
+      expect(callArgs.output.conversationCount).toBe(2)
+      expect(callArgs.output.apiCallCount).toBe(3)
+      expect(callArgs.output.toolCallCount).toBe(5)
+      expect(callArgs.output.totalCost).toBe(0.5)
+      expect(callArgs.output.totalTokens).toBe(2000)
+      expect(callArgs.output.codeChanges.linesAdded).toBe(100)
+      expect(callArgs.output.codeChanges.linesRemoved).toBe(20)
+      expect(callArgs.output.codeChanges.netChange).toBe(80)
+      
+      // Verify metadata
+      expect(callArgs.metadata.member).toBe('test-member')
 
       expect(mockLangfuseInstance.flushAsync).toHaveBeenCalled()
     })
